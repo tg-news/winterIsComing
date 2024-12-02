@@ -14,7 +14,8 @@ import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 import matplotlib.gridspec as gridspec
-from mpl_toolkits.mplot3d import Axes3D
+#from mpl_toolkits.mplot3d import Axes3D
+from mpl_toolkits.mplot3d import axes3d, Axes3D
 import matplotlib.cm as cm
 
 from nltk.corpus import stopwords
@@ -23,7 +24,9 @@ from sklearn.decomposition import NMF, LatentDirichletAllocation
 
 import nltk
 nltk.download("stopwords")
-german_stop_words = set(stopwords.words('german'))
+german_stop_words = list(stopwords.words('german'))
+
+print(german_stop_words)
 
 DATA_PATH = Path.cwd()
 if(not os.path.exists(DATA_PATH / 'img')):
@@ -55,6 +58,7 @@ def getNewsDF():
 
 keywordsColorsDF = pd.read_csv(DATA_PATH / 'keywords.csv', delimiter=',')
 topicsColorsDF = keywordsColorsDF.drop_duplicates(subset=['topic'])
+print(topicsColorsDF)
 
 newsDf = getNewsDF()
 newsDf['title'] = newsDf['title'].fillna('')
@@ -80,7 +84,8 @@ plot = topicsDF.plot.pie(y='index', ax=axTopics, colors=topicsDF['topicColor'], 
 
 # Keywords
 keywordsDF = newsDf.groupby('keyword').count()
-keywordsDF = pd.merge(keywordsDF, keywordsColorsDF, how='left', left_on=['keyword'], right_on=['keyword'])
+keywordsDF = keywordsDF.dropna()
+keywordsDF = pd.merge(keywordsDF, keywordsColorsDF, how='inner', left_on=['keyword'], right_on=['keyword'])
 keywordsDF = keywordsDF.sort_values('index', ascending=False)
 axKeywords = plt.subplot(gs[0,1])
 axKeywords.set_title("Keywords", fontsize=24)
@@ -124,14 +129,15 @@ if(not bayesDF2.empty):
   topic_idx = -1
   ##for topic in reversed(colorsTopics.keys()):
 
-  for index2, column2 in topicsColorsDF.iterrows():
+  for index2, column2 in topicsColorsDF.head(n_components).iterrows():
     topic = column2['topic']
     topic_idx += 1
     topicWords = {}  
     topicColor = column2['topicColor']
     topicColors = []
-    bayesDF2 = bayesDF2.sort_values(by=[topic], ascending=False)
-    for index, column in bayesDF2.iterrows():    
+    if(topic in bayesDF2.columns):
+      bayesDF2 = bayesDF2.sort_values(by=[topic], ascending=False)
+      for index, column in bayesDF2.iterrows():    
         if(len(topicWords) < n_top_words):
             if(index and (type(index) == str) and (column[topic]<100)):    
               #don't use 2grams  
@@ -180,7 +186,8 @@ def extractColors(words):
             bayes = bayesDict[word]
             #for topic in colorsTopics:  
             for index2, column2 in topicsColorsDF.iterrows():
-                topic = column2['topic']
+              topic = column2['topic']
+              if(topic in bayes):
                 if(bayes[topic] > wordValue):
                     wordValue = bayes[topic]
                     wordColor = column2['topicColor']
@@ -254,7 +261,8 @@ tfidf_vectorizer = TfidfVectorizer(
 tfidf = tfidf_vectorizer.fit_transform(newsDf.text)
 
 
-tfidf_feature_names = tfidf_vectorizer.get_feature_names()
+#tfidf_feature_names = tfidf_vectorizer.get_feature_names()
+tfidf_feature_names = tfidf_vectorizer.get_feature_names_out()
 
 model = NMF(
     n_components=n_components,
@@ -262,7 +270,7 @@ model = NMF(
     beta_loss="kullback-leibler",
     solver="mu",
     max_iter=1000,
-    alpha=0.1,
+    alpha_W=0.1,
     l1_ratio=0.5,
 )
 W = model.fit_transform(tfidf)
@@ -289,7 +297,8 @@ lda = LatentDirichletAllocation(
 )
 lda.fit(tf)
 
-tf_feature_names = tf_vectorizer.get_feature_names()
+#tf_feature_names = tf_vectorizer.get_feature_names()
+tf_feature_names = tf_vectorizer.get_feature_names_out()
 plot_top_words(lda, tf_feature_names, n_top_words, "Topics in LDA model", "topics_lda.png")
 
 #Sentiments, Counts, Entities
@@ -473,8 +482,10 @@ for idx, column in germanTopicsDate.iterrows():
         ca.append(column2['topicColor'])
         p += 1
 fig = plt.figure(figsize=(30, 20))
-ax = fig.gca(projection='3d')
-fig.subplots_adjust(left=0, right=1, bottom=0, top=1.5)
+## ax = Axes3D(fig)
+## ax = fig.gca(projection='3d')
+ax = fig.add_subplot(projection='3d')
+#fig.subplots_adjust(left=0, right=1, bottom=0, top=1.5)
 ticksx = germanTopicsDate.index.values.tolist()
 plt.xticks(ticksx, germanTopicsDate['Unnamed: 0'],rotation=63, fontsize=18)
 ticksy = np.arange(1, len(topicsColorsDF)+1, 1)

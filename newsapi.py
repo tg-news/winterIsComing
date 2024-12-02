@@ -51,7 +51,8 @@ def getNewsDFbyList(files):
             newsDF = df
         else:
             newsDF = pd.concat([newsDF, df])
-    newsDF = newsDF.sort_values(by=['published'], ascending=True)        
+    if(not newsDF.empty):
+        newsDF = newsDF.sort_values(by=['published'], ascending=True)        
     return newsDF 
 
 def getNewsDF():
@@ -60,8 +61,11 @@ def getNewsDF():
     return newsDF     
 
 newsDf = getNewsDF()
-keywordsNewsDF = newsDf.groupby('keyword').count()
-keywordsNewsDF = keywordsNewsDF.drop(columns = ['language'])
+
+keywordsNewsDF = pd.DataFrame(None) 
+if(not newsDf.empty):
+  keywordsNewsDF = newsDf.groupby('keyword').count()
+  keywordsNewsDF = keywordsNewsDF.drop(columns = ['language'])
 
 '''
 newsDf['age'] = newsDf['published'].apply(
@@ -69,10 +73,12 @@ newsDf['age'] = newsDf['published'].apply(
         datetime.datetime.now(datetime.timezone.utc) - parser.parse(x)
 )
 '''
-keywordsNewsDF2 = pd.merge(keywordsDF, keywordsNewsDF, how='left', left_on=['keyword'], right_on=['keyword'])
-keywordsNewsDF2['index'] = keywordsNewsDF2['index'].fillna(0)
-keywordsNewsDF2['index'] = keywordsNewsDF2['index'] - keywordsNewsDF2['ratioNew']
-keywordsNewsDF2 = keywordsNewsDF2.sort_values(by=['index'], ascending=True)  
+keywordsNewsDF2 = pd.DataFrame(None) 
+if(not keywordsNewsDF.empty):
+  keywordsNewsDF2 = pd.merge(keywordsDF, keywordsNewsDF, how='left', left_on=['keyword'], right_on=['keyword'])
+  keywordsNewsDF2['index'] = keywordsNewsDF2['index'].fillna(0)
+  keywordsNewsDF2['index'] = keywordsNewsDF2['index'] - keywordsNewsDF2['ratioNew']
+  keywordsNewsDF2 = keywordsNewsDF2.sort_values(by=['index'], ascending=True)  
 
 rows20 = int(math.ceil(keywordsNewsDF2.shape[0]/5))
 keywordsNewsDF2 = keywordsNewsDF2.head(rows20)
@@ -171,6 +177,37 @@ def findArchives(articles):
 
 def similar(a, b):
     return SequenceMatcher(None, a, b).ratio()
+
+def checkDuplicates(dict1, data2):
+    quote2 = str(data2['domain']) + ' ' + str(data2['title']) + ' ' + str(data2['description'])
+    md52 = hashlib.md5(quote2.encode('utf-8')).hexdigest() 
+    for url1 in dict1:
+        data1 = dict1[url1]
+        quote1 = str(data1['domain']) + ' ' + str(data1['title']) + ' ' + str(data1['description'])   
+        md51 = hashlib.md5(quote1.encode('utf-8')).hexdigest()
+        if(md52 == md51):
+            return True 
+        day1 = '1970-01-01'
+        if(len(str(data1['published']))>5):
+          pubDate1 = parser.parse(data1['published'])
+          day1 = pubDate1.strftime('%Y-%m-%d')
+        groupTxt1 = str(data1['domain']) +  ' ' + day1
+        group1 = hashlib.md5(groupTxt1.encode('utf-8')).hexdigest()  
+
+        day2 = '1970-01-01'
+        if(len(str(data2['published']))>5):
+          pubDate2 = parser.parse(data2['published'])
+          day2 = pubDate2.strftime('%Y-%m-%d')
+        groupTxt2 = str(data2['domain']) +  ' ' + day2
+        group2 = hashlib.md5(groupTxt2.encode('utf-8')).hexdigest()  
+        if(group1 == group2):
+          quote1 = str(data1['title']) + ' ' + str(data1['description'])
+          quote2 = str(data2['title']) + ' ' + str(data2['description'])
+          similarity = similar(quote1,quote2)
+          if(similarity>0.8):
+            return True
+    return False
+
 
 def removeDuplicates(df1):
     df1['md5'] = ''
@@ -344,6 +381,7 @@ def filterNewAndArchive(articles, language, keyWord):
                 else:
                     collectedNews[fileDate] = {}
             if(not data['url'] in collectedNews[fileDate]):
+              if(not checkDuplicates(collectedNews[fileDate], data)):
                 data = archiveUrl(data)
                 newArticles.append(data)
         if((time.time() - startTime) > 60*10):
@@ -379,20 +417,27 @@ def inqRandomNews():
 
     rndKey = keywordsDF.sample()
     randomNumber = random.random()
+
     print(['randomNumber: ',randomNumber])
-    if(randomNumber>0.8):
+    if(not keywordsNewsDF2.empty):
+      if(randomNumber>0.8):
         print("DF2 seldoms")
         rndKey = keywordsNewsDF2.sample()
-    if(randomNumber<0.4): 
+    if(not keywordsDF3.empty):
+      if(randomNumber<0.4): 
         print("DF3 successors")
         rndKey = keywordsDF3.sample()
+      if(randomNumber<0.1):
+        print("DF3 first")
+        rndKey = keywordsDF3.head(1).sample()
     #if FoundAny: newLimit = minimum(currPage+1,limitPage)
     #if foundNothing:  newLimit = maximum(1,random.choice(range(currPage-1,limitPage-1)))
 
     ## cheat for now!     
-    ### keywordEmptyDF = keywordsDF[keywordsDF['keyword']=="'Gasheizung'"]
+    ### keywordEmptyDF = keywordsDF[keywordsDF['keyword']=="'mildem Winter'"]
     ### rndKey = keywordEmptyDF.sample()
     ## rm in final version
+    ### rndKey = keywordsDF3.head(1).sample()
 
     #keyWord = random.choice(searchWords)
     #language = 'de'
@@ -459,7 +504,7 @@ def inqRandomNews():
                 if(currRatio>0.5):
                     deltaLimit += 1
                     #newLimit = max(currPage+2,limitPages)
-                newLimit =  max(currPage+deltaLimit,limitPages)
+                newLimit =  min(3,max(currPage+deltaLimit,limitPages))
                 print(['currRatio',currRatio,'currPage: ',currPage,' limitPages: ',limitPages,' deltaLimit: ',deltaLimit,' new Limit: ', newLimit])  
 
                 for data in newArticles:
@@ -478,7 +523,7 @@ def inqRandomNews():
               print(response.text)
               if(jsonData['code'] == 'maximumResultsReached'):
                 deltaLimit = -1
-                newLimit =  min(1,currPage+deltaLimit)
+                newLimit =  max(1,currPage+deltaLimit)
               # {"status":"error","code":"maximumResultsReached","message":"You have requested too many results. Developer accounts are limited to a max of 100 results. You are trying to request results 100 to 150. Please upgrade to a paid plan if you need more results."}
     #print(rndKey.index)
     #keywordsDF.at[rndKey.index, 'limitPages'] = newLimit    
